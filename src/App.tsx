@@ -61,6 +61,7 @@ function App() {
   const [audioDeviceId, setAudioDeviceId] = useState<string>('');
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [shareStream, setShareStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
 
   const [enabledAudio, setEnabledAudio] = useState(true);
@@ -95,7 +96,6 @@ function App() {
     (async () => {
       const p = new Peer({
         key: 'bfae4862-4740-46d1-bf51-8ee9105b83f3',
-        debug: 3
       });
       p.on('open', () => {
         console.log(p.id);
@@ -106,23 +106,40 @@ function App() {
   }, []);
 
   useEffect(() => {
-    (async () => {
-      const stream = await getStream({
-        audioDeviceId,
-        videoDeviceId,
-      });
-      setLocalStream(stream);
-      if (stream && localVideoRef && localVideoRef.current) {
-        const video: HTMLVideoElement = localVideoRef.current;
-        video.srcObject = stream;
-        video.play();
-      }
+    if (localStream && localVideoRef && localVideoRef.current) {
+      const video: HTMLVideoElement = localVideoRef.current;
+      video.srcObject = localStream;
+      video.play();
+    }
+  }, [localVideoRef, localStream]);
 
+  const replaceLocalStream = useCallback(async () => {
+    if (shareStream) {
       if (room) {
-        room.replaceStream(stream);
+        room.replaceStream(shareStream);
       }
-    })();
-  }, [audioDeviceId, videoDeviceId]);
+      return;
+    }
+
+    if (localStream) {
+      const tracks = localStream.getTracks();
+      tracks.forEach(t => t.stop())
+    }
+    const stream = await getStream({
+      audioDeviceId,
+      videoDeviceId,
+    });
+
+    setLocalStream(stream);
+
+    if (room) {
+      room.replaceStream(stream);
+    }
+  }, [audioDeviceId, videoDeviceId, localStream, shareStream])
+
+  useEffect(() => {
+    replaceLocalStream();
+  }, [audioDeviceId, videoDeviceId, shareStream]);
 
   useEffect(() => {
     (async () => {
@@ -148,6 +165,36 @@ function App() {
       console.log(r);
     })();
   }, [join]);
+
+  const shareDisplay = useCallback(() => {
+    (async () => {
+      if (!room) return;
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        const tracks = stream.getTracks();
+        tracks.forEach(t => {
+          t.addEventListener('ended', () => {
+            setShareStream(null);
+          });
+        });
+        console.log('shareDisplay', stream);
+        setShareStream(stream);
+      } catch (e) {
+        console.log(e);
+      }
+    })();
+  }, [room, localStream, setShareStream]);
+
+  const stopShareDisplay = useCallback(() => {
+    if (shareStream) {
+      const tracks = shareStream.getTracks();
+      tracks.forEach(t => {
+        t.stop();
+      });
+    }
+    setShareStream(null);
+  }, [shareStream, localStream]);
+
 
   const toggleAudio = useCallback(() => {
     const audios = localStream && localStream.getAudioTracks();
@@ -202,19 +249,36 @@ function App() {
         </select>
       </div>
       <div>
-        <button onClick={_=>setJoin(true)}>Join</button>
+        <button onClick={_=>setJoin(true)} disabled={join}>Join</button>
       </div>
       <div>
         <button onClick={_=>toggleVideo()}>{enabledVideo ? 'カメラを無効にする' : 'カメラを有効にする'}</button>
         <button onClick={_=>toggleAudio()}>{enabledAudio ? 'ミュートする' : 'ミュート解除'}</button>
+        { !shareStream && <button onClick={_=>shareDisplay()} disabled={!join}>画面共有</button> }
+        { shareStream && <button onClick={_=>stopShareDisplay()} disabled={!join}>画面共有を終える</button> }
       </div>
       <video
         ref={localVideoRef}
         width="400px"
+        style={{
+          width: '480px'
+        }}
         autoPlay
         muted
         playsInline
       />
+      {shareStream && (
+        <video
+          width="400px"
+          style={{
+            width: '480px'
+          }}
+          autoPlay
+          muted
+          playsInline
+          ref={(video) => { if (video) video.srcObject = shareStream }}
+        />
+      )}
       <div>
         {remoteStreams.map(({stream}) => (
           <video
