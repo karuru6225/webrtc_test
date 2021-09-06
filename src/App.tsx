@@ -45,6 +45,11 @@ async function getStream({
   return stream;
 }
 
+type RemoteStream = {
+  stream: MediaStream;
+  peerId: string;
+};
+
 function App() {
   const [peer, setPeer] = useState<Peer | null>(null);
   const [join, setJoin] = useState(false);
@@ -56,7 +61,7 @@ function App() {
   const [audioDeviceId, setAudioDeviceId] = useState<string>('');
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStreams, setRemoteStreams] = useState<MediaStream[]>([]);
+  const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
 
   const [enabledAudio, setEnabledAudio] = useState(true);
   const [enabledVideo, setEnabledVideo] = useState(true);
@@ -130,8 +135,14 @@ function App() {
       r.on('stream', async (stream) => {
         setRemoteStreams((prev) => [
           ...prev,
-          stream
+          {
+            stream,
+            peerId: stream.peerId
+          }
         ]);
+      });
+      r.on('peerLeave', (_peerId) => {
+        setRemoteStreams((prev) => prev.filter(({peerId}) => peerId !== _peerId));
       });
       setRoom(() => r);
       console.log(r);
@@ -205,7 +216,7 @@ function App() {
         playsInline
       />
       <div>
-        {remoteStreams.map((stream) => (
+        {remoteStreams.map(({stream}) => (
           <video
             autoPlay
             playsInline
