@@ -55,28 +55,49 @@ function App() {
   const [videoDeviceId, setVideoDeviceId] = useState<string>('');
   const [audioDeviceId, setAudioDeviceId] = useState<string>('');
 
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStreams, setRemoteStreams] = useState<MediaStream[]>([]);
+
+  const [enabledAudio, setEnabledAudio] = useState(true);
+  const [enabledVideo, setEnabledVideo] = useState(true);
+
   const localVideoRef = useRef(null);
 
-  const refreshDevices = useCallback(async () => {
+  const refreshDevices = useCallback(async (retry = 0) => {
+    console.log('called refreshDevices');
     const {
       aDevices,
-      vDevices
+      vDevices,
     } = await getDevices();
 
-    setAudioDevices(() => aDevices);
-    setVideoDevices(() => vDevices);
+    const audios = aDevices.filter(({ label }) => label !== '');
+    const videos = vDevices.filter(({ label }) => label !== '');
+
+    setAudioDevices(() => audios);
+    setVideoDevices(() => videos);
+
+    console.log({
+      audios,
+      videos
+    });
+
+    if (audios.length === 0 && videos.length === 0 && retry < 10) {
+      setTimeout(() => refreshDevices(retry + 1), 3000);
+    }
   }, []);
 
   useEffect(() => {
-    const p = new Peer({
-      key: 'bfae4862-4740-46d1-bf51-8ee9105b83f3',
-      debug: 3
-    });
-    p.on('open', () => {
-      console.log(p.id);
-    });
-    setPeer(() => p);
-    refreshDevices();
+    (async () => {
+      const p = new Peer({
+        key: 'bfae4862-4740-46d1-bf51-8ee9105b83f3',
+        debug: 3
+      });
+      p.on('open', () => {
+        console.log(p.id);
+      });
+      setPeer(() => p);
+      await refreshDevices();
+    })();
   }, []);
 
   useEffect(() => {
@@ -85,6 +106,7 @@ function App() {
         audioDeviceId,
         videoDeviceId,
       });
+      setLocalStream(stream);
       if (stream && localVideoRef && localVideoRef.current) {
         const video: HTMLVideoElement = localVideoRef.current;
         video.srcObject = stream;
@@ -100,18 +122,39 @@ function App() {
   useEffect(() => {
     (async () => {
       if (!join) return;
+      if (!localStream) return;
       if (!peer || peer && !peer.open) return;
-      const stream = await getStream({
-        audioDeviceId,
-        videoDeviceId,
-      });
       const r: MeshRoom = peer.joinRoom('test-room-id', {
-        stream
+        stream: localStream
+      });
+      r.on('stream', async (stream) => {
+        setRemoteStreams((prev) => [
+          ...prev,
+          stream
+        ]);
       });
       setRoom(() => r);
       console.log(r);
     })();
   }, [join]);
+
+  const toggleAudio = useCallback(() => {
+    const audios = localStream && localStream.getAudioTracks();
+    if (audios) {
+      const [audio] = audios;
+      audio.enabled = !enabledAudio;
+      setEnabledAudio(!enabledAudio);
+    }
+  }, [localStream, enabledAudio]);
+
+  const toggleVideo = useCallback(() => {
+    const videos = localStream && localStream.getVideoTracks();
+    if (videos) {
+      const [video] = videos;
+      video.enabled = !enabledVideo;
+      setEnabledVideo(!enabledVideo);
+    }
+  }, [localStream, enabledVideo]);
 
   return (
     <div className="App">
@@ -150,6 +193,10 @@ function App() {
       <div>
         <button onClick={_=>setJoin(true)}>Join</button>
       </div>
+      <div>
+        <button onClick={_=>toggleVideo()}>{enabledVideo ? 'カメラを無効にする' : 'カメラを有効にする'}</button>
+        <button onClick={_=>toggleAudio()}>{enabledAudio ? 'ミュートする' : 'ミュート解除'}</button>
+      </div>
       <video
         ref={localVideoRef}
         width="400px"
@@ -157,6 +204,15 @@ function App() {
         muted
         playsInline
       />
+      <div>
+        {remoteStreams.map((stream) => (
+          <video
+            autoPlay
+            playsInline
+            ref={(video) => { if (video) video.srcObject = stream }}
+          />
+        ))}
+      </div>
     </div>
   );
 }
