@@ -3,10 +3,23 @@ import ReactDOM from 'react-dom';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
+import { AuthProvider } from "./cognito/AuthProvider";
+import { APIProvider } from "./lambda/APIProvider";
+import awsConfig from "./awsConfig";
+import apiConfig from "./apiConfig";
+
+const props = {
+  awsConfig,
+  apiConfig,
+};
 
 ReactDOM.render(
   <React.StrictMode>
-    <App />
+    <AuthProvider {...props}>
+      <APIProvider apiConfig={apiConfig}>
+        <App />
+      </APIProvider>
+    </AuthProvider>
   </React.StrictMode>,
   document.getElementById('root')
 );

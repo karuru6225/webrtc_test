@@ -5,6 +5,9 @@ import React, {
   useRef,
 } from 'react';
 import Peer, { MeshRoom } from 'skyway-js';
+import { css } from "@emotion/css";
+import { useAPI } from "./lambda/APIContext";
+import useWebSocket from './hooks/useWebSocket';
 import './App.css';
 
 const mediaDevices = navigator.mediaDevices;
@@ -46,8 +49,57 @@ async function getStream({
 }
 
 type RemoteStream = {
-  stream: MediaStream;
   peerId: string;
+  stream: MediaStream;
+};
+
+interface CanvasCaptureMediaStreamTrack extends MediaStreamTrack {
+  canvas: HTMLCanvasElement;
+  requestFrame: () => void;
+};
+
+const canvasStyle = css({
+  border: "solid 1px #c00",
+});
+
+type CanvasProps = {
+  canvasRef: React.RefObject<HTMLCanvasElement>;
+  requestFrame: () => void;
+};
+
+const Canvas = (props: CanvasProps): JSX.Element => {
+  const {
+    canvasRef
+  } = props;
+  const handleClick = (e: React.MouseEvent<HTMLElement>) => {
+    if (!canvasRef || !canvasRef.current || !e) {
+      return;
+    }
+    const {
+      clientX,
+      clientY
+    } = e;
+    if (!clientX || !clientY) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const cx = clientX - rect.left;
+    const cy = clientY - rect.top;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "black";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 5, 0, 2 * Math.PI);
+    ctx.fill();
+  };
+  return (
+    <canvas
+      className={canvasStyle}
+      ref={canvasRef}
+      width={400}
+      height={300}
+      onClick={handleClick}
+    />
+  );
 };
 
 function App() {
@@ -62,12 +114,31 @@ function App() {
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [shareStream, setShareStream] = useState<MediaStream | null>(null);
+  const [canvasStream, setCanvasStream] = useState<MediaStream | null>(null);
+
   const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
 
   const [enabledAudio, setEnabledAudio] = useState(true);
   const [enabledVideo, setEnabledVideo] = useState(true);
 
   const localVideoRef = useRef(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const { get } = useAPI();
+  const {
+    connect,
+    disconnect,
+    sendMessage: rawSendMessage,
+    getLatestMessage,
+    messageCount,
+  } = useWebSocket({
+    keepalive: 30000
+  });
+
+  const sendMessage = useCallback((message) => {
+    console.log("sending...", message);
+    return rawSendMessage(JSON.stringify(message));
+  }, [rawSendMessage]);
 
   const refreshDevices = useCallback(async (retry = 0) => {
     console.log('called refreshDevices');
@@ -102,6 +173,7 @@ function App() {
       });
       setPeer(() => p);
       await refreshDevices();
+
     })();
   }, []);
 
@@ -120,6 +192,12 @@ function App() {
       }
       return;
     }
+    if (canvasStream) {
+      if (room) {
+        room.replaceStream(canvasStream);
+      }
+      return;
+    }
 
     if (localStream) {
       const tracks = localStream.getTracks();
@@ -135,11 +213,11 @@ function App() {
     if (room) {
       room.replaceStream(stream);
     }
-  }, [audioDeviceId, videoDeviceId, localStream, shareStream])
+  }, [audioDeviceId, videoDeviceId, localStream, shareStream, canvasStream])
 
   useEffect(() => {
     replaceLocalStream();
-  }, [audioDeviceId, videoDeviceId, shareStream]);
+  }, [audioDeviceId, videoDeviceId, shareStream, canvasStream]);
 
   useEffect(() => {
     (async () => {
@@ -158,13 +236,39 @@ function App() {
           }
         ]);
       });
+      type getWsUrlType = {
+        url: string;
+      };
+      const { url } = await get<getWsUrlType>("getWsUrl");
+
+      connect(url);
+
+      r.on('peerJoin', (_peerId) => {
+        console.log('peerJoin');
+      });
       r.on('peerLeave', (_peerId) => {
+        console.log('peerLeave');
+        const { stream } = remoteStreams.find(({peerId}) => peerId === _peerId) || {};
+        if (stream) {
+          const tracks = stream.getTracks();
+          tracks.forEach(t => t.stop());
+        }
         setRemoteStreams((prev) => prev.filter(({peerId}) => peerId !== _peerId));
       });
       setRoom(() => r);
       console.log(r);
     })();
+    return () => { disconnect() };
   }, [join]);
+
+  useEffect(() => {
+    if (messageCount <= 0) return;
+    const message = getLatestMessage();
+    if (!message) return;
+    console.log("onMessage", { message, messageCount });
+    const { key, payload } = JSON.parse(String(message));
+    console.log({ key, payload });
+  }, [messageCount]);
 
   const shareDisplay = useCallback(() => {
     (async () => {
@@ -195,6 +299,53 @@ function App() {
     setShareStream(null);
   }, [shareStream, localStream]);
 
+  useEffect(() => {
+    if (!canvasRef || !canvasRef.current) {
+      return;
+    }
+    const canvas = canvasRef.current;
+    const {
+      width,
+      height
+    } = canvas;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, width, height);
+  }, [canvasRef]);
+
+  const shareCanvas = useCallback(() => {
+    (async () => {
+      if (!room) return;
+      if (!canvasRef || !canvasRef.current) return;
+      try {
+        const stream = canvasRef.current.captureStream(10);
+        console.log(stream);
+        const tracks = stream.getTracks();
+        tracks.forEach(t => {
+          console.log(t);
+          t.addEventListener('ended', () => {
+            setCanvasStream(null);
+          });
+        });
+        console.log('shareDisplay', stream);
+        setCanvasStream(stream);
+      } catch (e) {
+        console.log(e);
+      }
+    })();
+  }, [room, localStream, setCanvasStream]);
+
+  const stopShareCanvas = useCallback(() => {
+    if (canvasStream) {
+      const tracks = canvasStream.getTracks();
+      tracks.forEach(t => {
+        t.stop();
+      });
+    }
+    setCanvasStream(null);
+  }, [setCanvasStream, canvasStream, localStream]);
+
 
   const toggleAudio = useCallback(() => {
     const audios = localStream && localStream.getAudioTracks();
@@ -213,6 +364,10 @@ function App() {
       setEnabledVideo(!enabledVideo);
     }
   }, [localStream, enabledVideo]);
+
+  const testHandler = useCallback(() => {
+    sendMessage({ key: 1, payload: 2 });
+  }, [sendMessage]);
 
   return (
     <div className="App">
@@ -254,37 +409,66 @@ function App() {
       <div>
         <button onClick={_=>toggleVideo()}>{enabledVideo ? 'カメラを無効にする' : 'カメラを有効にする'}</button>
         <button onClick={_=>toggleAudio()}>{enabledAudio ? 'ミュートする' : 'ミュート解除'}</button>
-        { !shareStream && <button onClick={_=>shareDisplay()} disabled={!join}>画面共有</button> }
-        { shareStream && <button onClick={_=>stopShareDisplay()} disabled={!join}>画面共有を終える</button> }
+        { !shareStream && <button onClick={_=>shareDisplay()} disabled={!join || !!canvasStream}>画面共有</button> }
+        { shareStream && <button onClick={_=>stopShareDisplay()} disabled={!join || !!canvasStream}>画面共有を終える</button> }
       </div>
       <video
         ref={localVideoRef}
         width="400px"
         style={{
-          width: '480px'
+          width: '240px'
         }}
         autoPlay
         muted
         playsInline
       />
+      <button onClick={() => testHandler()}>
+        テスト
+      </button>
+      <Canvas
+        canvasRef={canvasRef}
+        requestFrame={() => {
+          if (canvasStream) {
+            const tracks = canvasStream.getTracks() as CanvasCaptureMediaStreamTrack[];
+            tracks.forEach(t => {
+              t.requestFrame();
+            });
+          }
+        }}
+      />
+      { !canvasStream && <button onClick={_=>shareCanvas()} disabled={!join || !!shareStream}>Canvasを共有</button> }
+      { canvasStream && <button onClick={_=>stopShareCanvas()} disabled={!join || !!shareStream}>Canvas共有を終える</button> }
       {shareStream && (
         <video
-          width="400px"
+          width="240px"
           style={{
-            width: '480px'
+            width: '240px'
           }}
           autoPlay
           muted
           playsInline
-          ref={(video) => { if (video) video.srcObject = shareStream }}
+          ref={(video) => {
+            if (!video) return;
+            video.srcObject = shareStream;
+            video.play();
+          }}
         />
       )}
       <div>
-        {remoteStreams.map(({stream}) => (
+        {remoteStreams.map(({peerId, stream}) => (
           <video
+            key={peerId}
+            width="240px"
+            style={{
+              width: '240px'
+            }}
             autoPlay
             playsInline
-            ref={(video) => { if (video) video.srcObject = stream }}
+            ref={(video) => {
+              if (!video) return;
+              video.srcObject = stream;
+              video.play();
+            }}
           />
         ))}
       </div>
