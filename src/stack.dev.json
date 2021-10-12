@@ -1,0 +1,14 @@
+{
+  "ConnectedLambdaFunctionQualifiedArn": "arn:aws:lambda:ap-northeast-1:369403882068:function:kmv3-dev-connected:81",
+  "GetWsUrlLambdaFunctionQualifiedArn": "arn:aws:lambda:ap-northeast-1:369403882068:function:kmv3-dev-getWsUrl:63",
+  "UserPoolClientId": "30v2iv15amil3o0hj0p3346thb",
+  "UserPoolId": "ap-northeast-1_Z5Kkb2YQE",
+  "GetWithoutAuthLambdaFunctionQualifiedArn": "arn:aws:lambda:ap-northeast-1:369403882068:function:kmv3-dev-getWithoutAuth:84",
+  "MessageLambdaFunctionQualifiedArn": "arn:aws:lambda:ap-northeast-1:369403882068:function:kmv3-dev-message:81",
+  "GetWithAuthLambdaFunctionQualifiedArn": "arn:aws:lambda:ap-northeast-1:369403882068:function:kmv3-dev-getWithAuth:84",
+  "DisconnectLambdaFunctionQualifiedArn": "arn:aws:lambda:ap-northeast-1:369403882068:function:kmv3-dev-disconnect:81",
+  "GetIceUrlLambdaFunctionQualifiedArn": "arn:aws:lambda:ap-northeast-1:369403882068:function:kmv3-dev-getIceUrl:58",
+  "ServiceEndpoint": "https://51alnecbl0.execute-api.ap-northeast-1.amazonaws.com/dev",
+  "ServiceEndpointWebsocket": "wss://gwi02svbmh.execute-api.ap-northeast-1.amazonaws.com/dev",
+  "ServerlessDeploymentBucketName": "kmv3-dev-serverlessdeploymentbucket-15apdjhefalap"
+}

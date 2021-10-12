@@ -422,9 +422,12 @@ function App() {
         muted
         playsInline
       />
+      {/*
       <button onClick={() => testHandler()}>
         テスト
       </button>
+      */}
+      {/*
       <Canvas
         canvasRef={canvasRef}
         requestFrame={() => {
@@ -438,6 +441,7 @@ function App() {
       />
       { !canvasStream && <button onClick={_=>shareCanvas()} disabled={!join || !!shareStream}>Canvasを共有</button> }
       { canvasStream && <button onClick={_=>stopShareCanvas()} disabled={!join || !!shareStream}>Canvas共有を終える</button> }
+      */}
       {shareStream && (
         <video
           width="240px"
